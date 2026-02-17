@@ -3,7 +3,8 @@
 - IMPORTANT: The current version send raw-text over tcp and isn't secure at all
 
 ### How-To-Use
-- Build the project with `go build ./cmd/chat` (to pre-download all dependencies without building, use `go mod download`)
+- Build the project with `go build -o bin/ ./cmd/chat`
+- To pre-download all dependencies without building, use `go mod download`)
 - To use:
 ```sh
 # In one terminal (this is not a daemon so you need the terminal open)

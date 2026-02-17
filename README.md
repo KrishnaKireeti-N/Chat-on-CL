@@ -3,7 +3,7 @@
 - IMPORTANT: The current version send raw-text over tcp and isn't secure at all
 
 ### How-To-Use
-- Build the project with `go build` (to pre-download all dependencies without building, use `go mod download`)
+- Build the project with `go build ./cmd/chat` (to pre-download all dependencies without building, use `go mod download`)
 - To use:
 ```sh
 # In one terminal (this is not a daemon so you need the terminal open)
@@ -12,13 +12,12 @@ $ ./chat -s <username>
 # <username> is your username which you want to be known with!
 
 # In some other terminal (possible other machine)
-$ ./chat -c <username> localhost
+$ ./chat -c localhost <username>
 # <username> is your username which you want to be known with!
 # Connects to localhost:23456 and starts the UI for chatting
 
 # Use localhost for any testing till security updates
 ```
-
 
 ### TODO
 ### Security

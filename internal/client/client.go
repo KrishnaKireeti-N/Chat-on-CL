@@ -1,5 +1,5 @@
 // TODO: Implement Proper form for sharing data
-package main
+package client
 
 import (
 	"errors"
@@ -9,9 +9,9 @@ import (
 
 type (
 	User struct {
-		name        string
-		senderstyle Color
-		conn        net.Conn
+		Name        string
+		Senderstyle Color
+		Conn        net.Conn
 	}
 	Data struct {
 		name        string
@@ -23,7 +23,12 @@ type (
 	}
 )
 
-func makeUser(mode string, v ...string) (User, error) {
+var (
+	config Config
+)
+
+func MakeUser(mode string, c Config, v ...string) (User, error) {
+	config = c
 	modes := map[string]func(v ...string) (User, error){"listen": makeUserListen, "connect": makeUserConnect}
 	for m, f := range modes {
 		if m == mode {
@@ -35,11 +40,8 @@ func makeUser(mode string, v ...string) (User, error) {
 }
 
 func makeUserListen(v ...string) (User, error) {
-	if len(v) != 1 {
-		return User{}, errors.New("Provide proper arguments (mode, name)")
-	}
-
-	listener, err := net.Listen("tcp", config.Socket)
+	fmt.Println("localhost" + config.Socket)
+	listener, err := net.Listen("tcp", "localhost"+config.Socket)
 	if err != nil {
 		return User{}, fmt.Errorf("Coudln't listen on socket %s", config.Socket)
 	}
@@ -49,20 +51,16 @@ func makeUserListen(v ...string) (User, error) {
 		return User{}, errors.New("Couldn't accept a connection:\n" + err.Error())
 	}
 
-	return User{name: v[0], senderstyle: Blue, conn: conn}, nil
+	return User{Name: config.Name, Senderstyle: Blue, Conn: conn}, nil
 }
 
 func makeUserConnect(v ...string) (User, error) {
-	if len(v) != 2 {
-		return User{}, errors.New("Provide proper arguments (mode, name, endip)")
-	}
-
-	conn, err := net.Dial("tcp", v[1])
+	conn, err := net.Dial("tcp", v[0]+config.Socket)
 	if err != nil {
 		return User{}, errors.New("Couldn't establish a connection:\n" + err.Error())
 	}
 
-	return User{name: v[0], senderstyle: Red, conn: conn}, nil
+	return User{Name: config.Name, Senderstyle: Red, Conn: conn}, nil
 }
 
 // TODO: Handshake for establsihing any prior data
@@ -73,19 +71,19 @@ func (u User) Handshake() Data {
 }
 
 func (c User) Send(msg string) {
-	c.conn.Write([]byte(msg))
+	c.Conn.Write([]byte(msg))
 }
 
 func (c User) Recieve() string {
 	buf := make([]byte, 256)
-	n, err := c.conn.Read(buf)
+	n, err := c.Conn.Read(buf)
 	if err != nil {
 		fmt.Println(err.Error())
 	}
 
 	msg := string(buf[:n])
 	if msg == "0" {
-		c.conn.Close()
+		c.Conn.Close()
 		return "0"
 	}
 

@@ -1,7 +1,8 @@
-package main
+package ui
 
 import (
 	"fmt"
+	"github.com/KrishnaKireeti-N/Chat-on-CL/internal/client"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textarea"
@@ -9,44 +10,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
-
-// API Stuff (what other parts of the program (Client) can(technically should) access
-
-// Color enum
-type Color int
-
-const (
-	Red Color = iota
-	Green
-	Blue
-	Yellow
-	Purple
-	Cyan
-	White
-)
-
-func (c Color) String() string {
-	var color string
-	switch c {
-	case Red:
-		color = "#FF0000"
-	case Green:
-		color = "#00FF00"
-	case Blue:
-		color = "#0000FF"
-	case Yellow:
-		color = "FFFF00"
-	case Purple:
-		color = "800080"
-	case Cyan:
-		color = "48D1CC" // mediumturquoise
-	case White:
-		color = "FFFFFF"
-	}
-	return color
-}
-
-// ----------------------------------------------------------------------------------
 
 const gap = "\n\n"
 
@@ -62,7 +25,7 @@ type (
 )
 
 type model struct {
-	user        User
+	user        client.User
 	viewport    viewport.Model
 	messages    []string
 	textarea    textarea.Model
@@ -70,7 +33,7 @@ type model struct {
 	err         error
 }
 
-func initialModel(u User) model {
+func InitialModel(u client.User) model {
 	ta := textarea.New()
 	ta.Placeholder = "Send a message..."
 	ta.Focus()
@@ -97,7 +60,7 @@ Type a message and press Enter to send.`)
 		textarea:    ta,
 		messages:    []string{},
 		viewport:    vp,
-		senderStyle: lipgloss.NewStyle().Foreground(lipgloss.Color(user.senderstyle.String())),
+		senderStyle: lipgloss.NewStyle().Foreground(lipgloss.Color(u.Senderstyle.String())),
 		err:         nil,
 	}
 }
@@ -174,21 +137,21 @@ func (m model) View() string {
 }
 
 /* >>> Helper Functions <<< */
-func sendMsg(user User, msg string) func() tea.Msg {
+func sendMsg(user client.User, msg string) func() tea.Msg {
 	return func() tea.Msg {
 		user.Send(msg)
 		return nil
 	}
 }
 
-func recieveMsg(user User) tea.Cmd {
+func recieveMsg(user client.User) tea.Cmd {
 	return func() tea.Msg {
 		msg := user.Recieve()
 		if msg == "0" {
 			return quit{end: "Connection Ended!"}
 		}
 		return message{
-			sender:  user.conn.RemoteAddr().String(),
+			sender:  user.Conn.RemoteAddr().String(),
 			content: msg,
 		}
 	}

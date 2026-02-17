@@ -1,4 +1,4 @@
-module dev.kireeti/chat
+module github.com/KrishnaKireeti-N/Chat-on-CL
 
 go 1.25.7
 

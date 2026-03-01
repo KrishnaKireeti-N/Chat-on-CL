@@ -1,8 +1,10 @@
 package command
 
+// Some of the Tests are AI generated!
+
 import (
 	"fmt"
-	"os"
+	"strconv"
 	"testing"
 )
 
@@ -36,14 +38,7 @@ func (c Color) String() string {
 	}
 }
 
-func TestParse(t *testing.T) {
-	// Better implementation
-	color := map[string]string{
-		"Red":   "#ff0000",
-		"Green": "00ff00",
-		"Blue":  "#0000ff",
-	}
-
+func TestParse1(t *testing.T) {
 	args_list := struct {
 		Item string `command:"item"`
 	}{}
@@ -52,26 +47,114 @@ func TestParse(t *testing.T) {
 		priv  string `command:"color"`
 	}{priv: "private"}
 
-	p := NewParser([]string{"-l", "colors", "--color", "Red"})
+	//p := NewParser([]string{"-h"}, 2, 1)
+	p := NewParser([]string{"-l", "colors", "--color", "Red"}, 2, 1)
 
 	p.AddCmd("colors", "", "Prints all the colors available", nil, nil, func() { fmt.Println("Red Blue") })
 	p.AddCmd("list", "l", "List down the default configuration", []string{"item"}, &args_list, func() {
 		switch args_list.Item {
 		case "colors":
-			for c := Color(0); c != Invalid; c++ {
-				t.Log(c)
-			}
+			return
+		default:
+			t.Fatal("case `colors` should run")
 		}
 	})
 	p.AddOption("color", "", "Set the color of the text", []string{"color"}, &args_option)
 
 	c, err := p.Parse()
 	if err != nil {
-		t.Error(err.Error())
-		os.Exit(1)
+		t.Fatal(err.Error())
 	}
 	c()
+}
 
-	t.Log(args_list)
-	t.Log(color[args_option.Color])
+type testCmd struct {
+	A int    `command:"a"`
+	B string `command:"b"`
+}
+
+type testOpt struct {
+	X int `command:"x"`
+}
+
+func TestParse2(t *testing.T) {
+	args := []string{"--opt", "5", "run", "1", "ok"}
+
+	parser := NewParser(args, 1, 1)
+
+	cmdStruct := &testCmd{}
+	optStruct := &testOpt{}
+
+	parser.AddOption("opt", "", "test option", []string{"x"}, optStruct)
+	parser.AddCmd("run", "", "test command", []string{"a", "b"}, cmdStruct, func() {})
+
+	_, err := parser.Parse()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if optStruct.X != 5 {
+		t.Fatalf("expected option X=5, got %d", optStruct.X)
+	}
+}
+
+func TestInvalidCommand(t *testing.T) {
+	args := []string{"invalid"}
+
+	parser := NewParser(args, 1, 0)
+
+	_, err := parser.Parse()
+	if err == nil {
+		t.Fatal("expected error for invalid command")
+	}
+}
+
+func BenchmarkParse1(b *testing.B) {
+	for b.Loop() {
+		args := []string{"run", "42", "world"}
+
+		parser := NewParser(args, 1, 0)
+
+		cmdStruct := &testCmd{}
+		parser.AddCmd("run", "", "test command", []string{"a", "b"}, cmdStruct, func() {})
+
+		_, err := parser.Parse()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkParse100(b *testing.B) {
+	for b.Loop() {
+		args := []string{"cmd99", "1", "x"}
+
+		parser := NewParser(args, 100, 0)
+
+		for j := range 100 {
+			name := "cmd" + strconv.Itoa(j)
+			parser.AddCmd(name, "", "desc", []string{"a", "b"}, &testCmd{}, func() {})
+		}
+
+		_, err := parser.Parse()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkParseOption1(b *testing.B) {
+	for b.Loop() {
+		args := []string{"--opt", "3", "run", "1", "hello"}
+
+		parser := NewParser(args, 1, 1)
+
+		parser.AddOption("opt", "", "desc", []string{"x"}, &testOpt{})
+		parser.AddCmd("run", "", "desc", []string{"a", "b"}, &testCmd{}, func() {})
+
+		_, err := parser.Parse()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
 }

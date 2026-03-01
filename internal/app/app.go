@@ -15,8 +15,9 @@ type App struct {
 	user client.User
 }
 
-func NewApp() (a App) {
+func NewApp() *App {
 	var (
+		// Commands
 		args_listen struct {
 			Username string `command:"username"`
 		}
@@ -25,25 +26,33 @@ func NewApp() (a App) {
 			Host     string `command:"host"`
 		}
 
+		// Options
 		args_option struct {
 			Color client.Color `command:"color"`
 		}
+
+		// App
+		a App
 	)
 
-	arg_p := command.NewParser(os.Args[1:])
+	arg_p := command.NewParser(os.Args[1:], 2, 1)
 	arg_p.AddCmd("listen", "l", "Listen for incoming connections", []string{"username"}, &args_listen, func() {
 		config := client.Config{Name: args_listen.Username, Socket: ":23456"}
 
-		var err error
+		var (
+			err error
+		)
 		a.user, err = client.MakeUser("listen", config)
 		if err != nil {
 			log.Fatal(err.Error())
 		}
 	})
 	arg_p.AddCmd("connect", "c", "Connect to the given user", []string{"host", "username"}, &args_connect, func() {
-		config := client.Config{Name: args_listen.Username, Socket: ":23456"}
+		config := client.Config{Name: args_connect.Username, Socket: ":23456"}
 
-		var err error
+		var (
+			err error
+		)
 		a.user, err = client.MakeUser("connect", config, args_connect.Host)
 		if err != nil {
 			log.Fatal(err.Error())
@@ -56,10 +65,10 @@ func NewApp() (a App) {
 	}
 	c()
 
-	return a
+	return &a
 }
 
-func (a App) Run() {
+func (a *App) Run() {
 	p := tea.NewProgram(ui.InitialModel(a.user))
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Alas, there's been an error: %v", err)

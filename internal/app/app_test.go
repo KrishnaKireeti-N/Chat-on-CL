@@ -6,8 +6,9 @@ import (
 )
 
 func TestAppInit(t *testing.T) {
-	os.Args = os.Args[5:]
+	os.Args = os.Args[4:]
 	t.Log(os.Args)
 	a := NewApp()
+	a.Run()
 	t.Log(&a)
 }

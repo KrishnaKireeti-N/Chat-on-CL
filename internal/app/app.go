@@ -5,62 +5,78 @@ import (
 	"log"
 	"os"
 
-	"github.com/KrishnaKireeti-N/Chat-on-CL/internal/client"
 	"github.com/KrishnaKireeti-N/Chat-on-CL/internal/command"
+	"github.com/KrishnaKireeti-N/Chat-on-CL/internal/node"
 	"github.com/KrishnaKireeti-N/Chat-on-CL/internal/ui"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 type App struct {
-	user client.User
+	client *node.Client
 }
 
-func NewApp() (a App) {
+func NewApp() *App {
 	var (
+		// Commands
 		args_listen struct {
-			Username string `command:"username"`
 		}
 		args_connect struct {
-			Username string `command:"username"`
-			Host     string `command:"host"`
+			Host string `command:"host"`
 		}
 
+		// Options
 		args_option struct {
-			Color client.Color `command:"color"`
+			Color string `command:"color"`
 		}
+
+		// App
+		a App
 	)
 
-	arg_p := command.NewParser(os.Args[1:])
-	arg_p.AddCmd("listen", "l", "Listen for incoming connections", []string{"username"}, &args_listen, func() {
-		config := client.Config{Name: args_listen.Username, Socket: ":23456"}
+	// linux
+	config := node.LoadConfig("linux")
+	defer node.SaveConfig(config, "linux")
 
-		var err error
-		a.user, err = client.MakeUser("listen", config)
+	arg_p := command.NewParser(os.Args[1:], 2, 1)
+	arg_p.AddCmd("listen", "l", "Listen for incoming connections", []string{}, &args_listen, func() {
+		var (
+			err error
+		)
+		a.client, err = node.MakeUser("listen", config)
 		if err != nil {
 			log.Fatal(err.Error())
 		}
 	})
-	arg_p.AddCmd("connect", "c", "Connect to the given user", []string{"host", "username"}, &args_connect, func() {
-		config := client.Config{Name: args_listen.Username, Socket: ":23456"}
-
-		var err error
-		a.user, err = client.MakeUser("connect", config, args_connect.Host)
+	arg_p.AddCmd("connect", "c", "Connect to the given user", []string{"host"}, &args_connect, func() {
+		var (
+			err error
+		)
+		a.client, err = node.MakeUser("connect", config, args_connect.Host)
 		if err != nil {
 			log.Fatal(err.Error())
 		}
 	})
 	arg_p.AddOption("color", "c", "Set the color of your messages", []string{"color"}, &args_option)
+
 	c, err := arg_p.Parse()
 	if err != nil {
 		log.Fatal(err.Error())
 	}
+
+	// Managing the config according to the options provided
+	if color := args_option.Color; color != "" {
+		config.Color = color
+	}
+
+	fmt.Println(config)
+
 	c()
 
-	return a
+	return &a
 }
 
-func (a App) Run() {
-	p := tea.NewProgram(ui.InitialModel(a.user))
+func (a *App) Run() {
+	p := tea.NewProgram(ui.InitialModel(a.client))
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Alas, there's been an error: %v", err)
 		os.Exit(1)

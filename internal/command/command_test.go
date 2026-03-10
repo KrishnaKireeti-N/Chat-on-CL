@@ -65,6 +65,7 @@ func TestParse1(t *testing.T) {
 	if err != nil {
 		t.Fatal(err.Error())
 	}
+	fmt.Println(args_option)
 	c()
 }
 

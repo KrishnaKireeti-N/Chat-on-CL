@@ -2,8 +2,9 @@ package ui
 
 import (
 	"fmt"
-	"github.com/KrishnaKireeti-N/Chat-on-CL/internal/client"
 	"strings"
+
+	"github.com/KrishnaKireeti-N/Chat-on-CL/internal/node"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -14,18 +15,23 @@ import (
 const gap = "\n\n"
 
 type (
-	errMsg  error
-	message struct {
-		sender  string
+	errMsg error
+
+	user_message struct {
+		header  *node.Header
 		content string
 	}
+	user_left struct {
+		header *node.Header
+	}
+
 	quit struct {
 		end string
 	}
 )
 
 type model struct {
-	user        client.User
+	client      *node.Client
 	viewport    viewport.Model
 	messages    []string
 	textarea    textarea.Model
@@ -33,7 +39,7 @@ type model struct {
 	err         error
 }
 
-func InitialModel(u client.User) model {
+func InitialModel(u *node.Client) model {
 	ta := textarea.New()
 	ta.Placeholder = "Send a message..."
 	ta.Focus()
@@ -56,17 +62,17 @@ Type a message and press Enter to send.`)
 	ta.KeyMap.InsertNewline.SetEnabled(false)
 
 	return model{
-		user:        u,
+		client:      u,
 		textarea:    ta,
 		messages:    []string{},
 		viewport:    vp,
-		senderStyle: lipgloss.NewStyle().Foreground(lipgloss.Color(u.Senderstyle.String())),
+		senderStyle: lipgloss.NewStyle().Foreground(lipgloss.Color(u.Senderstyle)),
 		err:         nil,
 	}
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(textarea.Blink, recieveMsg(m.user))
+	return tea.Batch(textarea.Blink, recieveMsg(m.client))
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -96,7 +102,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyCtrlC, tea.KeyEsc:
 			fmt.Println(m.textarea.Value())
 
-			return m, tea.Batch(tea.Quit, sendMsg(m.user, "0"))
+			return m, tea.Batch(tea.Quit, sendMsg(m.client, "\r"))
 		case tea.KeyEnter:
 			body := m.textarea.Value()
 
@@ -107,18 +113,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// go sendMsg(m.user, body)
 
-			return m, tea.Batch(tiCmd, vpCmd, sendMsg(m.user, body))
+			return m, tea.Batch(tiCmd, vpCmd, sendMsg(m.client, body))
 		}
-	case message:
-		if msg.content == "0" {
-			return m, tea.Quit
-		}
-		m.messages = append(m.messages, m.senderStyle.Render(fmt.Sprintf("%v: ", msg.sender))+msg.content)
+	case user_message:
+		h := msg.header
+
+		senderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(m.client.Users[h.Username].Senderstyle))
+		m.messages = append(m.messages, senderStyle.Render(fmt.Sprintf("%v: ", h.Username))+msg.content)
 		m.viewport.SetContent(lipgloss.NewStyle().Width(m.viewport.Width).Render(strings.Join(m.messages, "\n")))
 		m.viewport.GotoBottom()
 
-		return m, tea.Batch(tiCmd, vpCmd, recieveMsg(m.user))
+		return m, tea.Batch(tiCmd, vpCmd, recieveMsg(m.client))
 
+	case user_left:
+		h := msg.header
+
+		m.messages = append(m.messages, fmt.Sprintf("--- %v left the chat", h.Username))
+		m.viewport.SetContent(lipgloss.NewStyle().Width(m.viewport.Width).Render(strings.Join(m.messages, "\n")))
+		m.viewport.GotoBottom()
+
+		return m, tea.Quit
 	case errMsg:
 		m.err = msg
 		return m, nil
@@ -137,21 +151,30 @@ func (m model) View() string {
 }
 
 /* >>> Helper Functions <<< */
-func sendMsg(user client.User, msg string) func() tea.Msg {
+func sendMsg(client *node.Client, msg string) func() tea.Msg {
 	return func() tea.Msg {
-		user.Send(msg)
+		switch msg {
+		case "":
+			return nil
+		case "\r":
+			client.SendTimeout(msg)
+			return nil
+		}
+		client.Send(msg)
 		return nil
 	}
 }
 
-func recieveMsg(user client.User) tea.Cmd {
+func recieveMsg(client *node.Client) tea.Cmd {
 	return func() tea.Msg {
-		msg := user.Recieve()
-		if msg == "0" {
-			return quit{end: "Connection Ended!"}
+		h, msg := client.Recieve()
+		switch msg {
+		case "\r":
+			return user_left{header: h}
 		}
-		return message{
-			sender:  user.Conn.RemoteAddr().String(),
+
+		return user_message{
+			header:  h,
 			content: msg,
 		}
 	}

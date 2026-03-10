@@ -178,11 +178,8 @@ func (p *Parser) Parse() (func(), error) {
 
 	for i := 0; i < len(p.args); i++ {
 		s := p.args[i]
-		if len(s) < 2 {
-			return nil, errors.New("There seems to be extra arguments given!\nUse -h for help")
-		}
 
-		if s[:2] == "--" {
+		if strings.HasPrefix(s, "--") {
 			opt, ok := p.parse_option(s[2:])
 			if !ok {
 				return nil, fmt.Errorf("Given option '%v' doesn't exist", s)
@@ -210,7 +207,7 @@ func (p *Parser) Parse() (func(), error) {
 
 			exec = cmd.call
 			if cmd.args == nil {
-				break
+				continue
 			}
 
 			cmd_usage := func() string {
@@ -277,7 +274,10 @@ func (p *Parser) parse_args(target_args []string, v parsable) error {
 
 func (p *Parser) parse_struct(arg string, fill_arg string, v parsable) error {
 	fill := v.getFill().Elem()
-	fieldi := v.getTags()[fill_arg]
+	fieldi, ok := v.getTags()[fill_arg]
+	if !ok {
+		return fmt.Errorf("unknown argument: %s", fill_arg)
+	}
 
 	switch fill.Field(fieldi).Type().Kind() {
 	case reflect.Int:

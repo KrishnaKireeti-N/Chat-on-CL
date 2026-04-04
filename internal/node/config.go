@@ -1,23 +1,12 @@
 package node
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
-
-// Color
-var StrtoColor map[string]string = map[string]string{
-	"Red":    "#FF0000",
-	"Green":  "$00FF00",
-	"Blue":   "#0000FF",
-	"Yellow": "#FFFF00",
-	"Purple": "#800080",
-	"Cyan":   "#48D1CC", // mediumturquoise
-	"White":  "#FFFFFF",
-}
 
 type Config struct {
 	Username string
@@ -26,14 +15,14 @@ type Config struct {
 	Timeout  int64
 }
 
-func setDefaults(c *Config) {
+func (c *Config) SetDefaults() {
 	if c.Username == "" {
 		var test string
 		for test == "" {
-			reader := bufio.NewReader(os.Stdin)
 			fmt.Print("Enter your username: ")
-			test, _ = reader.ReadString('\n')
-			test = test[:len(test)-1]
+			fmt.Scanf("%v", &test)
+			strings.TrimSuffix(test, "\n")
+			strings.TrimSuffix(test, "\r")
 		}
 		c.Username = test
 	}
@@ -51,48 +40,45 @@ func setDefaults(c *Config) {
 	}
 }
 
-func LoadConfig(opsys string) *Config {
+func getUserPath() string {
+	path, err := os.UserConfigDir()
+	if err != nil {
+		panic(err)
+	}
+	path = filepath.Join(path, "chat")
+
+	os.MkdirAll(path, 0755)
+
+	return path
+}
+
+func LoadConfig() *Config {
 	var (
-		path string
+		path string  = getUserPath()
 		c    *Config = &Config{}
 	)
-	switch opsys {
-	case "linux":
-		home := os.Getenv("HOME")
-		path = filepath.Join(home, ".config/chat")
-		os.MkdirAll(path, 0755)
-	}
 
 	fconfig, err := os.OpenFile(filepath.Join(path, "config.json"), os.O_CREATE|os.O_RDONLY, 0666)
 	if err != nil {
-		panic("Couldn't Open the config file")
+		panic(err)
 	}
 	defer fconfig.Close()
 
 	// {"Username":"JACK","Socket":":23456","Color":"Blue","Timeout":200}
 	json.NewDecoder(fconfig).Decode(c)
 
-	setDefaults(c)
-
 	return c
 }
 
-func SaveConfig(c *Config, opsys string) {
-	var (
-		path string
-	)
-	switch opsys {
-	case "linux":
-		home := os.Getenv("HOME")
-		path = filepath.Join(home, ".config/chat")
-		os.MkdirAll(path, 0755)
-	}
-
+func SaveConfig(c *Config) {
+	path := getUserPath()
 	fconfig, err := os.OpenFile(filepath.Join(path, "config.json"), os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0666)
 	if err != nil {
-		panic("Couldn't Open the config file")
+		panic(err)
 	}
 	defer fconfig.Close()
 
-	json.NewEncoder(fconfig).Encode(c)
+	if err := json.NewEncoder(fconfig).Encode(c); err != nil {
+		panic(err)
+	}
 }

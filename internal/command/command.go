@@ -19,234 +19,153 @@ This comment describes the intended use:
 */
 
 import (
-	"errors"
 	"fmt"
-	"reflect"
 	"strconv"
 	"strings"
 )
 
 type (
-	command struct {
-		// name, shorter-name, description
-		name  string
-		sname string
-		desc  string
+	ArgType    int8
+	Arg[T any] struct {
+		Type ArgType
+
+		Name  string
+		Sname string // shorter name
+
+		Desc string // What the command does
 
 		// Args taken by the command & the containter to be filled with the arguments
-		args []string
-		fill reflect.Value
+		Args []string
 
-		// tag (cached for performance)
-		tag map[string]int
+		// Argument parser
+		Parse func(ctx Context)
 
 		// Function which is returned as per the command given
-		call func()
+		Call func(*T)
 	}
-	option struct {
-		// name, shorter-name, description
-		name  string
-		sname string
-		desc  string
 
-		// Args taken by the option & the container to be filled with the arguments
+	// Parser GetX() Context
+	Context struct {
+		usage string
+		args  []string
+		idx   int
+	}
+
+	Parser[T any] struct {
 		args []string
-		fill reflect.Value
+		cmds []Arg[T]
 
-		// tag (cached for performance)
-		tag map[string]int
-	}
+		idx int
 
-	// interface so as to pass both command and option to helper-functions
-	parsable interface {
-		getArgs() []string
-		getFill() reflect.Value
-		getTags() map[string]int
-	}
-
-	Parser struct {
-		args    []string
-		cmds    []command
-		options []option
-
-		err error
+		exit func(int)
 	}
 )
 
-func (cmd *command) getArgs() []string       { return cmd.args }
-func (cmd *command) getFill() reflect.Value  { return cmd.fill }
-func (cmd *command) getTags() map[string]int { return cmd.tag }
-func (opt *option) getArgs() []string        { return opt.args }
-func (opt *option) getFill() reflect.Value   { return opt.fill }
-func (opt *option) getTags() map[string]int  { return opt.tag }
+const (
+	ArgCommand ArgType = iota
+	ArgOption
+)
 
-// AddCmd adds a command to the command table which is used to parse a command
-// and return the correspoding function after parsing is done
-func (p *Parser) AddCmd(name string, sname string, desc string, args []string, fill any, call func()) {
-	cmd := command{name: name, sname: sname, desc: desc, args: args, fill: reflect.ValueOf(fill), call: call}
-
-	if len(args) != 0 {
-		if filltype := reflect.TypeOf(fill); filltype.Kind() != reflect.Pointer {
-			panic(fmt.Sprintf("Error: AddCmd(%v): fill must be a pointer", name))
-		}
-		if fillval := reflect.ValueOf(fill); fillval.Elem().Kind() != reflect.Struct || fillval.IsNil() {
-			panic(fmt.Sprintf("Error: AddCmd(%v): fill must be a pointer to a struct", name))
-		}
-		if cmd.tag == nil {
-			fill := cmd.fill.Elem()
-			cmd.tag = make(map[string]int, fill.NumField())
-
-			for i := 0; i < fill.NumField(); i++ {
-				field := fill.Type().Field(i)
-
-				if !field.IsExported() {
-					continue
-				}
-
-				tag, ok := field.Tag.Lookup("command")
-				if !ok {
-					panic("Parser requires struct tags to be set for parsing arguments!")
-				}
-				cmd.tag[tag] = i
-			}
-		}
+func (cmd *Arg[T]) usage() string {
+	if cmd.Sname == "" {
+		return fmt.Sprintf("%v %v", cmd.Name, args_Arg(cmd))
 	}
+	return fmt.Sprintf("%v (%v) %v", cmd.Name, cmd.Sname, args_Arg(cmd))
+}
 
+// AddArg adds a command to the command table which is used to parse a command
+// and return the correspoding function after parsing is done
+//
+// Arg with different ArgType and same name is UB
+func (p *Parser[T]) AddArg(cmd Arg[T]) {
 	p.cmds = append(p.cmds, cmd)
 }
 
-// AddCmd adds a command to the command table which is used to parse a command
-// and return the correspoding function after parsing is done
-func (p *Parser) AddOption(name string, sname string, desc string, args []string, fill any) {
-	opt := option{name: name, sname: sname, desc: desc, args: args, fill: reflect.ValueOf(fill)}
-
-	if len(args) != 0 {
-		if filltype := reflect.TypeOf(fill); filltype.Kind() != reflect.Pointer {
-			panic(fmt.Sprintf("Error: AddOption(%v): fill must be a pointer", name))
-		}
-		if fillval := reflect.ValueOf(fill); fillval.Elem().Kind() != reflect.Struct || fillval.IsNil() {
-			panic(fmt.Sprintf("Error: AddCmd(%v): fill must be a pointer to a struct", name))
-		}
-		if opt.tag == nil {
-			fill := opt.fill.Elem()
-			opt.tag = make(map[string]int, fill.NumField())
-
-			for i := 0; i < fill.NumField(); i++ {
-				field := fill.Type().Field(i)
-
-				if !field.IsExported() {
-					continue
-				}
-
-				tag, ok := field.Tag.Lookup("command")
-				if !ok {
-					panic("Parser requires struct tags to be set for parsing arguments!")
-				}
-				opt.tag[tag] = i
-			}
-		}
-	}
-
-	p.options = append(p.options, opt)
-}
-
-func NewParser(args []string, ncmds int, noptions int) *Parser {
-	parser := &Parser{
+func NewParser[T any](args []string, exit func(int)) *Parser[T] {
+	parser := &Parser[T]{
 		args: args,
+		idx:  0,
+		exit: exit,
 	}
-	parser.cmds = make([]command, 0, ncmds+1)
-	parser.options = make([]option, 0, noptions)
+	parser.cmds = make([]Arg[T], 0, 3)
 
-	parser.cmds = append(parser.cmds, command{
-		name: "help", sname: "h", desc: "Displays the help text", args: nil, call: cli_help(parser),
+	parser.cmds = append(parser.cmds, Arg[T]{
+		Type: ArgCommand,
+		Name: "help", Sname: "h", Desc: "Displays the help text", Args: nil,
+		Parse: func(ctx Context) {},
+		Call:  cli_help(parser),
 	})
 
 	return parser
 }
 
-func (p *Parser) Parse() (func(), error) {
-	if p.err != nil {
-		return nil, p.err
-	}
-
-	found_cmd := false
-	var exec func() = cli_help(p)
+func (p *Parser[T]) Parse() (func(*T), func(*T)) {
+	var match_cmd *Arg[T]
+	var match_opts []*Arg[T]
 
 	if len(p.args) < 1 {
-		return nil, errors.New("Provide sufficient arguments!!!")
+		fmt.Println("Use -h for help")
+		p.exit(1)
+		return nil, nil
 	}
 
-	for i := 0; i < len(p.args); i++ {
-		s := p.args[i]
+	for p.idx < len(p.args) {
+		s := p.args[p.idx]
+		p.idx += 1
 
 		if strings.HasPrefix(s, "--") {
-			opt, ok := p.parse_option(s[2:])
+			opt, ok := p.parse_Arg(s)
 			if !ok {
-				return nil, fmt.Errorf("Given option '%v' doesn't exist", s)
-			}
-			if len(p.args)-i-1 < len(opt.args) {
-				return nil, fmt.Errorf("Not enough arguements!!!\n%v", fmt.Sprintf("%v %v\n", opt.name, args_option(opt)))
-			}
-			err := p.parse_args(p.args[i+1:i+len(opt.args)+1], opt)
-			if err != nil {
-				return nil, fmt.Errorf(err.Error()+"%v", fmt.Sprintf("%v %v:\n\t%v\n", opt.name, args_option(opt), opt.desc))
+				fmt.Printf("Given option '%v' doesn't exist\n", s)
+				p.exit(1)
 			}
 
-			i += len(opt.args)
-			continue
+			match_opts = append(match_opts, opt)
+
+			opt.Parse(Context{args: opt.Args, idx: 0, usage: opt.usage()})
 		} else {
-			if found_cmd {
-				return nil, errors.New("Only 1 command! Use -h for help")
-			}
-			found_cmd = true
-
-			cmd, ok := p.parse_cmd(s)
+			cmd, ok := p.parse_Arg(s)
 			if !ok {
-				return nil, fmt.Errorf("Given command '%v' doesn't exist", s)
+				fmt.Printf("Given command '%v' doesn't exist\n", s)
+				p.exit(1)
 			}
 
-			exec = cmd.call
-			if cmd.args == nil {
-				continue
+			if match_cmd != nil {
+				fmt.Println("Only 1 command! Use -h for help")
+				p.exit(1)
 			}
 
-			cmd_usage := func() string {
-				if cmd.sname == "" {
-					return fmt.Sprintf("%v %v", cmd.name, args_cmd(cmd))
-				}
-				return fmt.Sprintf("%v (%v) %v", cmd.name, cmd.sname, args_cmd(cmd))
-			}
-			if len(p.args)-i-1 < len(cmd.args) {
-				return nil, fmt.Errorf("Not enough arguements!!!\n%v\n", cmd_usage())
-			}
-			err := p.parse_args(p.args[i+1:i+len(cmd.args)+1], cmd)
-			if err != nil {
-				return nil, fmt.Errorf("Wrong Arguments!!!\n%v\n", cmd_usage())
-			}
+			match_cmd = cmd
 
-			i += len(cmd.args)
-			continue
+			cmd.Parse(Context{args: cmd.Args, idx: 0, usage: cmd.usage()})
+		}
+		continue
+	}
+
+	if match_cmd == nil {
+		fmt.Println("Atleast 1 command must be given!\n'help' is a command")
+		p.exit(1)
+		return nil, nil
+	}
+
+	match_opts_call := func(t *T) {
+		for i := range match_opts {
+			match_opts[i].Call(t)
 		}
 	}
 
-	return exec, nil
-}
-
-func (p *Parser) parse_option(target_option string) (*option, bool) {
-	for i := range p.options {
-		opt := &(p.options[i])
-		if target_option == opt.name || target_option == opt.sname {
-			return opt, true
-		}
+	if match_cmd.Name == "help" {
+		match_cmd.Call(nil)
 	}
-
-	return nil, false
+	return match_cmd.Call, match_opts_call
 }
 
-func (p *Parser) parse_cmd(target_cmd string) (*command, bool) {
+func (p *Parser[T]) parse_Arg(target string) (*Arg[T], bool) {
+	target, _ = strings.CutPrefix(target, "--")
+	target, _ = strings.CutPrefix(target, "-")
 	for i := range p.cmds {
 		cmd := &(p.cmds[i])
-		if target_cmd[1:] == cmd.sname || target_cmd == cmd.name {
+		if target == cmd.Sname || target == cmd.Name {
 			return cmd, true
 		}
 	}
@@ -254,84 +173,115 @@ func (p *Parser) parse_cmd(target_cmd string) (*command, bool) {
 	return nil, false
 }
 
-func (p *Parser) parse_args(target_args []string, v parsable) error {
-	var args []string = v.getArgs()
+func (p *Parser[T]) GetArgString(ctx Context) string {
+	retstr := p.args[p.idx]
 
-	if len(target_args) != len(args) {
-		return fmt.Errorf("All arguments must be provided!\n")
+	if checkArgsAmount(retstr, ctx) {
+		p.exit(1)
 	}
+	p.idx++
 
-	for i := range target_args {
-		arg := target_args[i]
-		err := p.parse_struct(arg, args[i], v)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
+	p.idx += 1
+	ctx.idx += 1
+	return retstr
 }
 
-func (p *Parser) parse_struct(arg string, fill_arg string, v parsable) error {
-	fill := v.getFill().Elem()
-	fieldi, ok := v.getTags()[fill_arg]
-	if !ok {
-		return fmt.Errorf("unknown argument: %s", fill_arg)
-	}
+func (p *Parser[T]) GetArgInt(ctx Context) int64 {
+	retstr := p.args[p.idx]
 
-	switch fill.Field(fieldi).Type().Kind() {
-	case reflect.Int:
-		x, err := strconv.ParseInt(arg, 10, 64)
-		if err != nil {
-			return fmt.Errorf("Provide a proper integer for argument '%v'\nGiven integer: %v\n", fill_arg, arg)
-		}
-		fill.Field(fieldi).SetInt(x)
-	case reflect.String:
-		fill.Field(fieldi).SetString(arg)
+	if checkArgsAmount(retstr, ctx) {
+		p.exit(1)
 	}
+	p.idx++
 
-	return nil
+	retint, err := strconv.ParseInt(retstr, 10, 64)
+	if err != nil {
+		fmt.Printf(
+			"Provide a proper argument for parameter '%v'\nGiven: %v\n",
+			ctx.args[ctx.idx], retstr)
+		p.exit(1)
+	}
+	ctx.idx += 1
+
+	return retint
 }
 
-func cli_help(a *Parser) func() {
-	return func() {
+func GetArgX[T any, X any](p *Parser[T], Cast func(string) (X, error)) func(Context) X {
+	return func(ctx Context) X {
+		retstr := p.args[p.idx]
+
+		if checkArgsAmount(retstr, ctx) {
+			p.exit(1)
+		}
+		p.idx++
+
+		retX, err := Cast(retstr)
+		if err != nil {
+			fmt.Printf(
+				"Provide a proper argument for parameter '%v' | Given: %v\n%v\n",
+				ctx.args[ctx.idx], retstr, err.Error())
+			p.exit(1)
+		}
+		ctx.idx += 1
+
+		return retX
+	}
+}
+
+func checkCmdOrOpt(t string) bool {
+	return strings.HasPrefix(t, "-") || strings.HasPrefix(t, "--")
+}
+
+// Return true if user gave wrong
+func checkArgsAmount(retstr string, ctx Context) bool {
+	if checkCmdOrOpt(retstr) {
+		fmt.Printf("Not enough arguments!!!\n%v\n", ctx.usage)
+		return true
+	}
+
+	if ctx.idx > len(ctx.args) {
+		fmt.Printf("Too many arguments!!\n%v", ctx.usage)
+		return true
+	}
+
+	return false
+}
+
+func cli_help[T any](a *Parser[T]) func(*T) {
+	return func(_ *T) {
 		fmt.Println("COMMANDS (specified as '-short <args>' or 'long <args>'):")
 		for i := range a.cmds {
 			cmd := &(a.cmds[i])
-
-			if cmd.sname != "" {
-				fmt.Printf("%v (%v) %v:\n\t%v\n", cmd.name, cmd.sname, args_cmd(cmd), cmd.desc)
-			} else {
-				fmt.Printf("%v %v:\n\t%v\n", cmd.name, args_cmd(cmd), cmd.desc)
+			if cmd.Type == ArgCommand {
+				if cmd.Sname != "" {
+					fmt.Printf("%v (%v) %v:\n\t%v\n", cmd.Name, cmd.Sname, args_Arg(cmd), cmd.Desc)
+				} else {
+					fmt.Printf("%v %v:\n\t%v\n", cmd.Name, args_Arg(cmd), cmd.Desc)
+				}
 			}
 		}
 
 		fmt.Println("\nOPTIONS (specified as '--option <args>'")
-		for i := range a.options {
-			opt := &(a.options[i])
+		for i := range a.cmds {
+			opt := &(a.cmds[i])
 
-			if opt.sname != "" {
-				fmt.Printf("%v (%v) %v:\n\t%v\n", opt.name, opt.sname, args_option(opt), opt.desc)
-			} else {
-				fmt.Printf("%v %v:\n\t%v\n", opt.name, args_option(opt), opt.desc)
+			if opt.Type == ArgOption {
+				if opt.Sname != "" {
+					fmt.Printf("%v (%v) %v:\n\t%v\n", opt.Name, opt.Sname, args_Arg(opt), opt.Desc)
+				} else {
+					fmt.Printf("%v %v:\n\t%v\n", opt.Name, args_Arg(opt), opt.Desc)
+				}
 			}
 		}
+
+		a.exit(0)
 	}
 }
 
-func args_cmd(cmd *command) string {
+func args_Arg[T any](cmd *Arg[T]) string {
 	var args strings.Builder
-	args.Grow(len(cmd.args) * 6)
-	for _, arg := range cmd.args {
-		fmt.Fprintf(&args, "<%v> ", arg)
-	}
-
-	return args.String()
-}
-func args_option(opt *option) string {
-	var args strings.Builder
-	args.Grow(len(opt.args) * 6)
-	for _, arg := range opt.args {
+	args.Grow(len(cmd.Args) * 6)
+	for _, arg := range cmd.Args {
 		fmt.Fprintf(&args, "<%v> ", arg)
 	}
 
